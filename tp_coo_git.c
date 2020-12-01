@@ -1,205 +1,212 @@
 #include <linux/module.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/proc_fs.h>
 #include <rtai.h>
 #include <rtai_sched.h>
-#include <stdio.h> /* for printf() */
+#include <rtai_fifos.h>
+#include <rtai_proc_fs.h>
 #include <comedilib.h>
-#include <math.h>
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Squelette de programme RTAI et carte ni-6221");
+MODULE_AUTHOR("LARBI-LY");
 
 
+/*
+ *	command line parameters
+ */
+
+
+#define ms  1000000
+
+#define microsec 1000
+
+#define CAN 0
+#define CNA 1
+#define DIO 2
+#define CHAN_0 0
+#define CHAN_1 1
+#define CHAN_2 2
+#define CHAN_3 3
+#define CHAN_4 4
+#define CAN_RANGE 1 // [-5, +5]
 #define N 50
-#define fifo1 1
-#define fifo1 2
-#define n 4
-#define a 3
-#define p 2
-#define f 1
-#define s 0
-#define PI 3.14159265359
-#define BIT_SET(port, bit) ( (port) & (1 << bit) ) ? 1 : 0
 
 
-static RT_TASK lectureCAN;
-static RT_TASK ecritureCNA;
-static RT_TASK TraitementVar;
-
-int subdev = 0; /* indique quel composant de la carte sera
-utilisé */
-int chan = 0; /* indique quel port ou voie sera utilisé */
-int range = 0; /* indique l’échelle qui sera utilisée */
-int aref = AREF_GROUND; /* indique la référence de masse à utiliser */
+static RT_TASK Tache1_Ptr; // Pointeur pour la tache 1
+static RT_TASK Tache2_Ptr;
 
 
-static void lectureCAN_code(long int X)
+static RT_TASK Handler_Ptr; // Pointeur pour la tache de reprise de main
+
+comedi_t *carte;
+
+
+void Tache2 (long int x)
 {
-	comedi_t *ma_carte;
-	lsampl_t PORTA, POTENTIO;
-	ma_carte=comedi_open("/dev/comedi0");
+
+	lsampl_t S, f, p, a, data;
 	
-	while (1)
+	while(1)
 	{
-		comedi_data_read(ma_carte,subdev,chan,range,aref, &PORTA); /*lecture d’une donnée contenue dans la variable data, sur
-		ma_carte, sur le composant 0, la voie 0, la première échelle 0,
-		utilsant la référence AREF_GROUND, */
+
 		
-		rtf_put(fifo1, &PORTA, sizeof(PORTA));
+		comedi_dio_read(carte, DIO, CHAN_4, 0, &n);	
+		comedi_dio_read(carte, DIO, CHAN_0, 0, &S); 
+		comedi_dio_read(carte, DIO, CHAN_1, 0, &f);
+		comedi_dio_read(carte, DIO, CHAN_2, 0, &p);
+		comedi_dio_read(carte, DIO, CHAN_3, 0, &a);
+		comedi_data_read(carte, CAN, CHAN_0, 0,AREF_GROUNd, &data);
+
+		rtf_put(fifo1, &n, sizeof(n));
+		rtf_put(fifo1, &a, sizeof(a));	
+		rtf_put(fifo1, &S, sizeof(S));
+		rtf_put(fifo1, &f, sizeof(f));		
+		rtf_put(fifo1, &p, sizeof(p));
+		rtf_put(fifo1, &data, sizeof(data));	
 		rt_sem_signal(&S1);
-
+		
 	}
 	
 }
 
-static void TraitementVar_code(long int X)
-{
-	lsampl_t A1 = 5 , A0 = 5, f1 = 100, f0 = 100 , Phi1 = 0, Phi0 = 0, temp = 0;
-	
-	while (1) {
-		rt_sem_wait(&S1);
-        rtf_get(fifo1, &PORTA, sizeof(PORTA));
-		if( BIT_SET(PORTA,n) ){ 
-			temp = 2;
-			rtf_put(fifo2, &temp, sizeof(temp));
-			// signal 1
-			if ( BIT_SET(PORTA,a) ){
-				comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO); // Lecture du potentio
-				A1 = (potentio +5.)/2.; // Décallage des valeurs du potention [-5, +5] à [0, 5]
-				
-				rtf_put(fifo2, &A1, sizeof(A1));
-				rtf_put(fifo2, &Phi1, sizeof(Phi1));
-				rtf_put(fifo2, &f1, sizeof(f1));
-				rt_sem_signal(&S2);
-				
-			}
-			else if ( BIT_SET(PORTA,p) ){
-				comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-				Phi1 = potentio*3.1415/(5.*2.); // Décallage des valeurs du potentio de [-5, +5] à [-PI/2, +PI/2]
-				
-				rtf_put(fifo2, &A1, sizeof(A1));
-				rtf_put(fifo2, &Phi1, sizeof(Phi1));
-				rtf_put(fifo2, &f1, sizeof(f1));
-				rt_sem_signal(&S2);
-			}
-			else if ( BIT_SET(PORTA,f) ){
-				if (BIT_SET(PORTA,s){
-					comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-					f1 = 990.*potentio + 5050; // Décallage des valeurs du potentio de [-5, 5] à [100, 10 000]
-					
-					rtf_put(fifo2, &A1, sizeof(A1));
-					rtf_put(fifo2, &Phi1, sizeof(Phi1));
-					rtf_put(fifo2, &f1, sizeof(f1));
-					rt_sem_signal(&S2);
-				}
-				else{
-					comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-					f1 = 9.9*potentio + 50.5;// Décallage des valeurs du potentio de [-5, 5] à [1, 100]
-					
-					rtf_put(fifo2, &A1, sizeof(A1));
-					rtf_put(fifo2, &Phi1, sizeof(Phi1));
-					rtf_put(fifo2, &f1, sizeof(f1));
-					rt_sem_signal(&S2);
-				}
-			}			
-		} else{ 
-			// signal 0
-			temp = 1;
-			rtf_put(fifo2, &temp, sizeof(temp));
-			rt_sem_signal(&S2);
-			if ( BIT_SET(PORTA,a) ){
-				comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO); // Lecture du potentio
-				A0 = (potentio +5.)/2.; // Décallage des valeurs du potention [-5, +5] à [0, 5]
-				
-				rtf_put(fifo2, &A0, sizeof(A0));
-				rtf_put(fifo2, &Phi0, sizeof(Phi0));
-				rtf_put(fifo2, &f0, sizeof(f0));
-				rt_sem_signal(&S2);
-			}
-			else if ( BIT_SET(PORTA,p) ){
-				comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-				Phi0 = potentio*3.1415/(5.*2.); // Décallage des valeurs du potentio de [-5, +5] à [-PI/2, +PI/2]
-				
-				rtf_put(fifo2, &A0, sizeof(A0));
-				rtf_put(fifo2, &Phi0, sizeof(Phi0));
-				rtf_put(fifo2, &f0, sizeof(f0));
-				rt_sem_signal(&S2);
-			}
-			else if ( BIT_SET(PORTA,f) ){
-				
-				if (BIT_SET(PORTA,s){
-					comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-					f0 = 990.*potentio + 5050; // Décallage des valeurs du potentio de [-5, 5] à [100, 10 000]
-					
-					rtf_put(fifo2, &A0, sizeof(A0));
-					rtf_put(fifo2, &Phi0, sizeof(Phi0));
-					rtf_put(fifo2, &f0, sizeof(f0));
-					rt_sem_signal(&S2);
-				}
-				else{
-					comedi_data_read(ma_carte,subdev,chan,range,aref, &POTENTIO);
-					f0 = 9.9*potentio + 50.5;// Décallage des valeurs du potentio de [-5, 5] à [1, 100]
-					
-					rtf_put(fifo2, &A0, sizeof(A0));
-					rtf_put(fifo2, &Phi0, sizeof(Phi0));
-					rtf_put(fifo2, &f0, sizeof(f0));
-					rt_sem_signal(&S2);
-				}
-			}			
 
-		
-		} 
+
+void Tache1 (long int x)
+{
+	static int i = 0;
+	float coeff = 32767.5;
+	double Tab[N] = {0.000000,0.125333,0.248690,0.368125,0.481754,0.587785,0.684547,0.770513,0.844328,0.904827,0.951057,0.982287,0.998027,0.998027,0.982287,0.951057,0.904827,0.844328,0.770513,0.684547,0.587785,0.481754,0.368125,0.248690,0.125333,0.000000,-0.125333,-0.248690,-0.368124,-0.481754,-0.587785,-0.684547,-0.770513,-0.844328,-0.904827,-0.951056,-0.982287,-0.998027,-0.998027,-0.982287,-0.951057,-0.904827,-0.844328,-0.770513,-0.684547,-0.587785,-0.481754,-0.368125,-0.248690,-0.125333 };
+  
+	lsampl_t TabCNA[N], S, f, p, a, data;
 	
+	rtf_sem_wait(&S1);
+  	rtf_get(fifo1, &n);
+  	rtf_get(fifo1, &a);
+  	rtf_get(fifo1, &S);
+  	rtf_get(fifo1, &f);
+  	rtf_get(fifo1, &p);
+  	rtf_get(fifo1, &data);
+  
+  
+	if (n) { // signal 1
+		if (a) {
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] = data * coeff * Tab[i] + coeff;
+			}
+		}
+		if (f){   // rt_sleep pour gerer la frÃ©quence
+		
+			if (S){
+			}
+			else{
+
+			}
+		}
+		if (p){
+
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] =  coeff * ( Tab[i] + data ) + coeff;
+			}
+
+		}
+	
+		while (1)
+		{  
+			// Corps de la tÃ¢che 1
+		
+			comedi_data_write(carte, CNA, CHAN_1, 0, AREF_GROUND, TabCNA[i]); // write CNA i
+
+			i = (i+1) % N;	
+
+			rt_task_wait_period();
+   		}
 	}
+
+	else { // signal 0
+		if (a) {
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] = data * coeff * Tab[i] + coeff;
+			}
+		}
+
+		if (f){   // rt_sleep pour gerer la frÃ©quence
+			
+			if (S){
+			}
+			else{
+
+			}
+		}
+
+		if (p){
+
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] =  coeff * ( Tab[i] + data ) + coeff;
+			}
+
+		}	
+
+ 		while (1)
+  		{  
+    		// Corps de la tÃ¢che 1
+	
+			comedi_data_write(carte, CNA, CHAN_0, 0, AREF_GROUND, TabCNA[i]); // write CNA i
+
+			i = (i+1) % N;	
+
+			rt_task_wait_period();
+
+  	}
+
+}
+
 }
 
 
-static void ecritureCNA_code(long int X)
-{
-	lsampl_tA1 = 5 , A0 = 5, f1 = 100, f0 = 100 , Phi1 = 0, Phi0 = 0, temp, Te0, Te1;
-	double S0, S1;
-	
-	rt_sem_wait(&S2);
-	rtf_get(fifo2, &temp, sizeof(temp));
 
-	if (temp == 1) { // demande de modification du signal 0
+
+int init_module(void)
+{	
+	RTIME now, timer_periode;
+ 	 // CrÃ©ation des tÃ¢ches
+    rt_task_init(&Tache1_Ptr, Tache1, 1, 2000, 2, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
+ 	rt_task_init(&Tache2_Ptr, Tache2, 1, 2000, 1, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
+ 	
+  	// Initialisation de la carte d'E/S
+  	carte = comedi_open("/dev/comedi0");	
+  	
+	if(carte == NULL)
+  	{
+    		comedi_perror("Comedi fails to open");
+    		return -1;
+  	}
+
+	// Configurer le device DIGITAL_INPUT pour recevoir les donnees/signaux
+	// et DIGITAL_OUTPUT pour envoyer les donnees/signaux
+	// rt_set_oneshot_mode();
+	rt_set_periodic_mode();	
+	rt_assign_irq_to_cpu(TIMER_8254_IRQ, 0);
 	
-		rtf_get(fifo2, &A0, sizeof(A0));
-		rtf_get(fifo2, &Phi0, sizeof(Phi0));
-		rtf_get(fifo2, &f0, sizeof(f0));
-		
-		Te0 = 1/(10 * f0);
-		
-		for (int i = 0 ; i < N; ++i){
-			S0 = A0 * sin(2*PI * f0 * i * Te0 + Phi0);
-			comedi_data_write(ma_carte,subdev,chan,range,aref, &S0);
-		}
-		
-		
-	} else if ( temp == 2 ){ // demande de modification du  signal 1
- 		
-		rtf_get(fifo2, &A1, sizeof(A1));
-		rtf_get(fifo2, &Phi1, sizeof(Phi1));
-		rtf_get(fifo2, &f1, sizeof(f1));
-		
-		Te1 = 1 / (10 * f1);
-		
-		for (int i = 0 ; i < N; ++i){
-			S1 = A1 * sin(2*PI * f1 * i * Te1 + Phi1);
-			comedi_data_write(ma_carte,subdev,chan,range,aref, &S1);
-		}
-		
-		
-		
-	}
-	else { // pas de demande de modification
-	
-		Te0 = 1/(10*f0);
-		Te1 = 1/(10*f1);
-		
-		S0 = A0 * sin(2*PI * f0 * i * Te0 + Phi0);
-		S1 = A1 * sin(2*PI * f1 * i * Te1 + Phi1);
-		
-		comedi_data_write(ma_carte,subdev,chan,range,aref, &S0);
-		comedi_data_write(ma_carte,subdev,chan1,range,aref, &S1);
-		
-	}
-	
-	
+
+	// Lancement du timer
+	timer_periode = start_rt_timer(nano2count(ms));
+	now = rt_get_time();
+  	// Lancement des taches
+	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 1 ms T = 50 ms (signal) 
+	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test tout les 50ms
+
+
+  return 0;
+}
+
+
+void cleanup_module(void)
+{
+  stop_rt_timer();
+  // Destruction des objets de l'application
+  rt_task_delete(&Tache1_Ptr);
+  rt_task_delete(&Tache2_Ptr);
+  
 }
