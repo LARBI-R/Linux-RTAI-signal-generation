@@ -1,0 +1,16 @@
+# Remplacer foo par votre module application
+sudo /sbin/rmmod foo
+
+sudo /sbin/rmmod rtai_comedi
+sudo /sbin/rmmod rtai_fifos
+# sudo /sbin/rmmod rtai_lxrt
+# sudo /sbin/rmmod rtai_hal
+
+# /sbin/rmmod ni_pcimio
+# /sbin/rmmod ni_tiocmd
+# /sbin/rmmod ni_tio
+# /sbin/rmmod comedi_fc
+# /sbin/rmmod kcomedilib
+# /sbin/rmmod mite
+# /sbin/rmmod comedi
+
