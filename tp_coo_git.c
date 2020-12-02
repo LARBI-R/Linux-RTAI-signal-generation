@@ -47,6 +47,7 @@ void Tache2 (long int x)
 {
 
 	lsampl_t S, f, p, a, data;
+
 	
 	while(1)
 	{
@@ -76,7 +77,7 @@ void Tache2 (long int x)
 void Tache1 (long int x)
 {
 	static int i = 0;
-	float coeff = 32767.5;
+	float coeff = 32767.5, Voltage, Phase;
 	double Tab[N] = {0.000000,0.125333,0.248690,0.368125,0.481754,0.587785,0.684547,0.770513,0.844328,0.904827,0.951057,0.982287,0.998027,0.998027,0.982287,0.951057,0.904827,0.844328,0.770513,0.684547,0.587785,0.481754,0.368125,0.248690,0.125333,0.000000,-0.125333,-0.248690,-0.368124,-0.481754,-0.587785,-0.684547,-0.770513,-0.844328,-0.904827,-0.951056,-0.982287,-0.998027,-0.998027,-0.982287,-0.951057,-0.904827,-0.844328,-0.770513,-0.684547,-0.587785,-0.481754,-0.368125,-0.248690,-0.125333 };
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
@@ -89,28 +90,34 @@ void Tache1 (long int x)
   	rtf_get(fifo1, &p);
   	rtf_get(fifo1, &data);
   
-  
-	if (n) { // signal 1
-		if (a) {
-			for (i = 0 ; i < N; i++){
-				TabCNA[i] = data * coeff * Tab[i] + coeff;
-			}
+  	if (a) {
+
+		Voltage = ( (5)/(65535) ) * data  // conversion ADC pour un registre ADC de 16 bits [0 5V]
+
+		for (i = 0 ; i < N; i++){
+			TabCNA[i] = Voltage * 0.5 * coeff * Tab[i] + coeff;
 		}
-		if (f){   // rt_sleep pour gerer la fréquence
+	}
+
+	else if (f) {   // rt_sleep pour gerer la fréquence
 		
-			if (S){
-			}
-			else{
-
-			}
+		if (S){
 		}
-		if (p){
-
-			for (i = 0 ; i < N; i++){
-				TabCNA[i] =  coeff * ( Tab[i] + data ) + coeff;
-			}
+		else{
 
 		}
+	}
+	else if (p){
+
+		Phase = ( (PI) / (65535) ) * data - (PI)/ (2) ;
+
+		for (i = 0 ; i < N; i++){
+			TabCNA[i] =  coeff * ( Tab[i] + Phase ) + coeff;
+		}
+
+	}
+
+	if (n) { // signal 1
 	
 		while (1)
 		{  
@@ -125,28 +132,6 @@ void Tache1 (long int x)
 	}
 
 	else { // signal 0
-		if (a) {
-			for (i = 0 ; i < N; i++){
-				TabCNA[i] = data * coeff * Tab[i] + coeff;
-			}
-		}
-
-		if (f){   // rt_sleep pour gerer la fréquence
-			
-			if (S){
-			}
-			else{
-
-			}
-		}
-
-		if (p){
-
-			for (i = 0 ; i < N; i++){
-				TabCNA[i] =  coeff * ( Tab[i] + data ) + coeff;
-			}
-
-		}	
 
  		while (1)
   		{  
@@ -173,7 +158,9 @@ int init_module(void)
  	 // Création des tâches
     rt_task_init(&Tache1_Ptr, Tache1, 1, 2000, 2, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
  	rt_task_init(&Tache2_Ptr, Tache2, 1, 2000, 1, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
- 	
+ 	rtf_create(1,2000);
+	
+
   	// Initialisation de la carte d'E/S
   	carte = comedi_open("/dev/comedi0");	
   	
@@ -208,5 +195,5 @@ void cleanup_module(void)
   // Destruction des objets de l'application
   rt_task_delete(&Tache1_Ptr);
   rt_task_delete(&Tache2_Ptr);
-  
+  rtf_destroy(1);
 }
