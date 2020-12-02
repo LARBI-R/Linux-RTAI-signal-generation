@@ -63,12 +63,13 @@ void Tache2 (long int x)
 		comedi_data_read(carte, CAN, CHAN_0, CAN_RANGE, AREF_GROUNd, &data);
 
 		rtf_put(fifo1, &n, sizeof(n));
-		rtf_put(fifo1, &a, sizeof(a));	
+		rtf_put(fifo1, &a, sizeof(a));
 		rtf_put(fifo1, &S, sizeof(S));
 		rtf_put(fifo1, &f, sizeof(f));		
 		rtf_put(fifo1, &p, sizeof(p));
 		rtf_put(fifo1, &data, sizeof(data));	
 		rt_sem_signal(&S1);
+		
 		
 	}
 	
@@ -79,7 +80,7 @@ void Tache2 (long int x)
 void Tache1 (long int x)
 {
 	static int i = 0;
-	float coeff = 32767.5, Voltage, Phase;
+	float coeff = 32767.5, Voltage, Phase, x;
 	double Tab[N] = {0.000000,0.125333,0.248690,0.368125,0.481754,0.587785,0.684547,0.770513,0.844328,0.904827,0.951057,0.982287,0.998027,0.998027,0.982287,0.951057,0.904827,0.844328,0.770513,0.684547,0.587785,0.481754,0.368125,0.248690,0.125333,0.000000,-0.125333,-0.248690,-0.368124,-0.481754,-0.587785,-0.684547,-0.770513,-0.844328,-0.904827,-0.951056,-0.982287,-0.998027,-0.998027,-0.982287,-0.951057,-0.904827,-0.844328,-0.770513,-0.684547,-0.587785,-0.481754,-0.368125,-0.248690,-0.125333 };
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
@@ -91,6 +92,10 @@ void Tache1 (long int x)
   	rtf_get(fifo1, &f);
   	rtf_get(fifo1, &p);
   	rtf_get(fifo1, &data);
+
+	for (i = 0 ; i < N; i++){
+		TabCNA[i] = 0.5 * coeff * Tab[i] + coeff;
+	}
   
   	if (a) {
 
@@ -103,10 +108,13 @@ void Tache1 (long int x)
 
 	else if (f) {   // rt_sleep pour gerer la fréquence
 		
-		if (S){
+		if (S){ // 1 - 100 Hz
+			x = data; // 0 - 2^16 -> -5 5 V 
+			rt_sleep(2000 * x);
 		}
-		else{
-
+		else{ // 100 - 10 khZ
+			x = data; // 0 - 2^16 -5 5 V
+			rt_sleep(200 * x);
 		}
 	}
 	else if (p){
@@ -163,6 +171,7 @@ int init_module(void)
  	rtf_create(1,2000);
 	rt_sem_init(&S1,1);
 
+
   	// Initialisation de la carte d'E/S
   	carte = comedi_open("/dev/comedi0");	
   	
@@ -180,10 +189,10 @@ int init_module(void)
 	
 
 	// Lancement du timer
-	timer_periode = start_rt_timer(nano2count(ms));
+	timer_periode = start_rt_timer(nano2count(2000)); // 2000 nS
 	now = rt_get_time();
   	// Lancement des taches
-	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 1 ms T = 50 ms (signal) 
+	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 2000 nS T = 0.1 ms , F = 10Khz (signal) 
 	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test tout les 50ms
 
 
