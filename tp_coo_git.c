@@ -32,15 +32,17 @@ MODULE_AUTHOR("LARBI-LY");
 #define CHAN_4 4
 #define CAN_RANGE 1 // [-5, +5]
 #define N 50
+#define PI 3.1415
 
 
 static RT_TASK Tache1_Ptr; // Pointeur pour la tache 1
 static RT_TASK Tache2_Ptr;
-
+SEM S1;
 
 static RT_TASK Handler_Ptr; // Pointeur pour la tache de reprise de main
 
 comedi_t *carte;
+
 
 
 void Tache2 (long int x)
@@ -58,7 +60,7 @@ void Tache2 (long int x)
 		comedi_dio_read(carte, DIO, CHAN_1, 0, &f);
 		comedi_dio_read(carte, DIO, CHAN_2, 0, &p);
 		comedi_dio_read(carte, DIO, CHAN_3, 0, &a);
-		comedi_data_read(carte, CAN, CHAN_0, 0,AREF_GROUNd, &data);
+		comedi_data_read(carte, CAN, CHAN_0, CAN_RANGE, AREF_GROUNd, &data);
 
 		rtf_put(fifo1, &n, sizeof(n));
 		rtf_put(fifo1, &a, sizeof(a));	
@@ -82,7 +84,7 @@ void Tache1 (long int x)
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
 	
-	rtf_sem_wait(&S1);
+	rt_sem_wait(&S1);
   	rtf_get(fifo1, &n);
   	rtf_get(fifo1, &a);
   	rtf_get(fifo1, &S);
@@ -159,7 +161,7 @@ int init_module(void)
     rt_task_init(&Tache1_Ptr, Tache1, 1, 2000, 2, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
  	rt_task_init(&Tache2_Ptr, Tache2, 1, 2000, 1, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
  	rtf_create(1,2000);
-	
+	rt_sem_init(&S1,1);
 
   	// Initialisation de la carte d'E/S
   	carte = comedi_open("/dev/comedi0");	
@@ -196,4 +198,5 @@ void cleanup_module(void)
   rt_task_delete(&Tache1_Ptr);
   rt_task_delete(&Tache2_Ptr);
   rtf_destroy(1);
+  rt_sem_delete(&S1);
 }
