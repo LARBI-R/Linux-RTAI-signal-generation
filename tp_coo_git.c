@@ -32,7 +32,7 @@ MODULE_AUTHOR("LARBI-LY");
 #define CHAN_4 4
 #define CAN_RANGE 1 // [-5, +5]
 #define N 50
-#define PI 3.1415
+#define PI 3.14159
 
 
 static RT_TASK Tache1_Ptr; // Pointeur pour la tache 1
@@ -42,8 +42,6 @@ SEM S1;
 static RT_TASK Handler_Ptr; // Pointeur pour la tache de reprise de main
 
 comedi_t *carte;
-
-
 
 void Tache2 (long int x)
 {
@@ -67,7 +65,7 @@ void Tache2 (long int x)
 		rtf_put(fifo1, &S, sizeof(S));
 		rtf_put(fifo1, &f, sizeof(f));		
 		rtf_put(fifo1, &p, sizeof(p));
-		rtf_put(fifo1, &data, sizeof(data));	
+		rtf_put(fifo1, &data, sizeof(data));	// valeur du CAN 
 		rt_sem_signal(&S1);
 		
 		
@@ -106,20 +104,20 @@ void Tache1 (long int x)
 		}
 	}
 
-	else if (f) {   // rt_sleep pour gerer la fréquence
+	else if (f) {   // rt_busy_sleep delai sans liberation du processeur
 		
 		if (S){ 
 			
 			freq = ( (99)/(65535) ) * data + 1 ; // Vmin Vmax  -> 1 100 
 			x = (1) / (2e-6 * 50 * freq);
-			rt_sleep(2 * x - 2);
+			rt_busy_sleep( (2*x-2) * microsec);
 		}
 		else{ // 100 - 10 khZ
 
 			freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
 			x = (1) / (2e-6 * 50 * freq);
-			rt_sleep(2 * x - 2);
-			
+			rt_busy_sleep( (2*x-2) * microsec);
+
 		}
 	}
 	else if (p){
@@ -136,8 +134,6 @@ void Tache1 (long int x)
 	
 		while (1)
 		{  
-			// Corps de la tâche 1
-		
 			comedi_data_write(carte, CNA, CHAN_1, 0, AREF_GROUND, TabCNA[i]); // write CNA i
 
 			i = (i+1) % N;	
@@ -150,8 +146,6 @@ void Tache1 (long int x)
 
  		while (1)
   		{  
-    		// Corps de la tâche 1
-	
 			comedi_data_write(carte, CNA, CHAN_0, 0, AREF_GROUND, TabCNA[i]); // write CNA i
 
 			i = (i+1) % N;	
@@ -188,20 +182,26 @@ int init_module(void)
 
 	// Configurer le device DIGITAL_INPUT pour recevoir les donnees/signaux
 	// et DIGITAL_OUTPUT pour envoyer les donnees/signaux
-	// rt_set_oneshot_mode();
-	rt_set_periodic_mode();	
+	comedi_dio_config(carte,DIO,CHAN_1,COMEDI_INPUT);
+	comedi_dio_config(carte,DIO,CHAN_2,COMEDI_INPUT);
+	comedi_dio_config(carte,DIO,CHAN_3,COMEDI_INPUT);
+	comedi_dio_config(carte,DIO,CHAN_4,COMEDI_INPUT);
+
+
+	rt_set_oneshot_mode();
+	//rt_set_periodic_mode();	
 	rt_assign_irq_to_cpu(TIMER_8254_IRQ, 0);
 	
 
 	// Lancement du timer
-	timer_periode = start_rt_timer(nano2count(2000)); // 2000 nS -> 2 uS
+	timer_periode = start_rt_timer(nano2count(2 * microsec)); // 2 uS
 	now = rt_get_time();
   	// Lancement des taches
 	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 2 uS T = 0.1 ms , F = 10Khz (signal) 
 	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test toute les periode
 
 
-  return 0;
+  	return 0;
 }
 
 
