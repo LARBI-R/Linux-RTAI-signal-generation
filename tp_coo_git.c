@@ -119,7 +119,7 @@ void Tache1 (long int x)
 			freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
 			x = (1) / (2e-6 * 50 * freq);
 			rt_sleep(2 * x - 2);
-			rt_sleep(200 * x);
+			
 		}
 	}
 	else if (p){
