@@ -80,7 +80,7 @@ void Tache2 (long int x)
 void Tache1 (long int x)
 {
 	static int i = 0;
-	float coeff = 32767.5, Voltage, Phase, x;
+	double coeff = 32767.5, Voltage, Phase, freq, x;
 	double Tab[N] = {0.000000,0.125333,0.248690,0.368125,0.481754,0.587785,0.684547,0.770513,0.844328,0.904827,0.951057,0.982287,0.998027,0.998027,0.982287,0.951057,0.904827,0.844328,0.770513,0.684547,0.587785,0.481754,0.368125,0.248690,0.125333,0.000000,-0.125333,-0.248690,-0.368124,-0.481754,-0.587785,-0.684547,-0.770513,-0.844328,-0.904827,-0.951056,-0.982287,-0.998027,-0.998027,-0.982287,-0.951057,-0.904827,-0.844328,-0.770513,-0.684547,-0.587785,-0.481754,-0.368125,-0.248690,-0.125333 };
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
@@ -108,12 +108,17 @@ void Tache1 (long int x)
 
 	else if (f) {   // rt_sleep pour gerer la fréquence
 		
-		if (S){ // 1 - 100 Hz
-			x = data; // 0 - 2^16 -> -5 5 V 
-			rt_sleep(2000 * x);
+		if (S){ 
+			
+			freq = ( (99)/(65535) ) * data + 1 ; // Vmin Vmax  -> 1 100 
+			x = (1) / (2e-6 * 50 * freq);
+			rt_sleep(2 * x - 2);
 		}
 		else{ // 100 - 10 khZ
-			x = data; // 0 - 2^16 -5 5 V
+
+			freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
+			x = (1) / (2e-6 * 50 * freq);
+			rt_sleep(2 * x - 2);
 			rt_sleep(200 * x);
 		}
 	}
@@ -189,11 +194,11 @@ int init_module(void)
 	
 
 	// Lancement du timer
-	timer_periode = start_rt_timer(nano2count(2000)); // 2000 nS
+	timer_periode = start_rt_timer(nano2count(2000)); // 2000 nS -> 2 uS
 	now = rt_get_time();
   	// Lancement des taches
-	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 2000 nS T = 0.1 ms , F = 10Khz (signal) 
-	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test tout les 50ms
+	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 2 uS T = 0.1 ms , F = 10Khz (signal) 
+	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test toute les periode
 
 
   return 0;
