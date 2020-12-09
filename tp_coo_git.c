@@ -83,6 +83,7 @@ void Tache1 (long int x)
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
 	
+
 	rt_sem_wait(&S1);
   	rtf_get(fifo1, &n);
   	rtf_get(fifo1, &a);
@@ -152,9 +153,18 @@ void Tache1 (long int x)
 
 			rt_task_wait_period();
 
-  	}
+  		}
+	}
 
-}
+	if ( ( i % 50 ) == 0 )
+	{
+		rt_task_resume(&Tache2_Ptr);
+	} else
+	{
+		rt_task_suspend (&Tache2_Ptr);
+	}
+	
+	
 
 }
 
@@ -198,8 +208,8 @@ int init_module(void)
 	now = rt_get_time();
   	// Lancement des taches
 	rt_task_make_periodic(&Tache1_Ptr, now, timer_periode*1); // 1 point toutes les 2 uS T = 0.1 ms , F = 10Khz (signal) 
-	rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test toute les periode
-
+	//rt_task_make_periodic(&Tache2_Ptr, now, timer_periode*50); // 1 test toute les periode
+	rt_task_resume (&Tache2_Ptr);
 
   	return 0;
 }
