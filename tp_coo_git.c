@@ -67,6 +67,8 @@ void Tache2 (long int x)
 		rtf_put(fifo1, &p, sizeof(p));
 		rtf_put(fifo1, &data, sizeof(data));	// valeur du CAN 
 		rt_sem_signal(&S1);
+
+		rt_task_suspend (&Tache2_Ptr);
 		
 		
 	}
@@ -78,96 +80,91 @@ void Tache2 (long int x)
 void Tache1 (long int x)
 {
 	static int i = 0;
+	static int j = 0;
+	
 	double coeff = 32767.5, Voltage, Phase, freq, x;
 	double Tab[N] = {0.000000,0.125333,0.248690,0.368125,0.481754,0.587785,0.684547,0.770513,0.844328,0.904827,0.951057,0.982287,0.998027,0.998027,0.982287,0.951057,0.904827,0.844328,0.770513,0.684547,0.587785,0.481754,0.368125,0.248690,0.125333,0.000000,-0.125333,-0.248690,-0.368124,-0.481754,-0.587785,-0.684547,-0.770513,-0.844328,-0.904827,-0.951056,-0.982287,-0.998027,-0.998027,-0.982287,-0.951057,-0.904827,-0.844328,-0.770513,-0.684547,-0.587785,-0.481754,-0.368125,-0.248690,-0.125333 };
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
-	
 
-	rt_sem_wait(&S1);
-  	rtf_get(fifo1, &n);
-  	rtf_get(fifo1, &a);
-  	rtf_get(fifo1, &S);
-  	rtf_get(fifo1, &f);
-  	rtf_get(fifo1, &p);
-  	rtf_get(fifo1, &data);
 
 	for (i = 0 ; i < N; i++){
 		TabCNA[i] = 0.5 * coeff * Tab[i] + coeff;
 	}
   
-  	if (a) {
-
-		Voltage = ( (5)/(65535) ) * data  // conversion ADC pour un registre ADC de 16 bits [0 5V]
-
-		for (i = 0 ; i < N; i++){
-			TabCNA[i] = Voltage * 0.5 * coeff * Tab[i] + coeff;
-		}
-	}
-
-	else if (f) {   // rt_busy_sleep delai sans liberation du processeur
+	while (1)
+	{
+		rt_sem_wait(&S1);
+		rtf_get(fifo1, &n);
+		rtf_get(fifo1, &a);
+		rtf_get(fifo1, &S);
+		rtf_get(fifo1, &f);
+		rtf_get(fifo1, &p);
+		rtf_get(fifo1, &data);
 		
-		if (S){ 
+		if (a) {
+
+			Voltage = ( (5)/(65535) ) * data  // conversion ADC pour un registre ADC de 16 bits [0 5V]
+
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] = Voltage * 0.5 * coeff * Tab[i] + coeff;
+			}
+		}
+
+		else if (f) {   // rt_busy_sleep delai sans liberation du processeur
+				
+			if (S){ 
+				freq = ( (99)/(65535) ) * data + 1 ; // Vmin Vmax  -> 1 100 
+				x = (1) / (2e-6 * 50 * freq);
+				rt_busy_sleep( (2*x-2) * microsec);
+			}
+			else{ // 100 - 10 khZ
+
+				freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
+				x = (1) / (2e-6 * 50 * freq);
+				rt_busy_sleep( (2*x-2) * microsec);
+			}
+		}
+		else if (p){
+
+			Phase = ( (PI) / (65535) ) * data - (PI)/ (2) ;
+
+			for (i = 0 ; i < N; i++){
+				TabCNA[i] =  coeff * ( Tab[i] + Phase ) + coeff;
+			}
+
+		}
+
+		if (n) { // signal 1
+
+			comedi_data_write(carte, CNA, CHAN_1, 0, AREF_GROUND, TabCNA[j]); // write CNA i
+
+			j = (j+1) % N;
 			
-			freq = ( (99)/(65535) ) * data + 1 ; // Vmin Vmax  -> 1 100 
-			x = (1) / (2e-6 * 50 * freq);
-			rt_busy_sleep( (2*x-2) * microsec);
-		}
-		else{ // 100 - 10 khZ
-
-			freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
-			x = (1) / (2e-6 * 50 * freq);
-			rt_busy_sleep( (2*x-2) * microsec);
-
-		}
-	}
-	else if (p){
-
-		Phase = ( (PI) / (65535) ) * data - (PI)/ (2) ;
-
-		for (i = 0 ; i < N; i++){
-			TabCNA[i] =  coeff * ( Tab[i] + Phase ) + coeff;
-		}
-
-	}
-
-	if (n) { // signal 1
-	
-		while (1)
-		{  
-			comedi_data_write(carte, CNA, CHAN_1, 0, AREF_GROUND, TabCNA[i]); // write CNA i
-
-			i = (i+1) % N;	
+			if ( ( j % 50 ) == 0 )
+			{
+				rt_task_resume(&Tache2_Ptr);
+			}
 
 			rt_task_wait_period();
-   		}
-	}
-
-	else { // signal 0
-
- 		while (1)
-  		{  
-			comedi_data_write(carte, CNA, CHAN_0, 0, AREF_GROUND, TabCNA[i]); // write CNA i
-
-			i = (i+1) % N;	
+		}
+		else
+		{
+			comedi_data_write(carte, CNA, CHAN_0, 0, AREF_GROUND, TabCNA[j]); // write CNA i
+				
+			j = (j+1) % N;	
+				
+			if ( ( j % 50 ) == 0 )
+			{
+				rt_task_resume(&Tache2_Ptr);
+			}
 
 			rt_task_wait_period();
-
-  		}
-	}
-
-	if ( ( i % 50 ) == 0 )
-	{
-		rt_task_resume(&Tache2_Ptr);
-	} else
-	{
-		rt_task_suspend (&Tache2_Ptr);
+		}
+			
 	}
 	
-	
-
 }
-
 
 
 
