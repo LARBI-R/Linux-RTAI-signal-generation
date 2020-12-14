@@ -33,11 +33,12 @@ MODULE_AUTHOR("LARBI-LY");
 #define CAN_RANGE 1 // [-5, +5]
 #define N 50
 #define PI 3.14159
+#define fifo1 1
 
 
 static RT_TASK Tache1_Ptr; // Pointeur pour la tache 1
 static RT_TASK Tache2_Ptr;
-SEM S1;
+static SEM S1;
 
 static RT_TASK Handler_Ptr; // Pointeur pour la tache de reprise de main
 
@@ -51,23 +52,28 @@ void Tache2 (long int x)
 	
 	while(1)
 	{
-
-		
+		// lecture des entrees digitales	
 		comedi_dio_read(carte, DIO, CHAN_4, 0, &n);	
 		comedi_dio_read(carte, DIO, CHAN_0, 0, &S); 
 		comedi_dio_read(carte, DIO, CHAN_1, 0, &f);
 		comedi_dio_read(carte, DIO, CHAN_2, 0, &p);
 		comedi_dio_read(carte, DIO, CHAN_3, 0, &a);
-		comedi_data_read(carte, CAN, CHAN_0, CAN_RANGE, AREF_GROUNd, &data);
 
+		// lecture de l'entree analogique du CAN
+		comedi_data_read(carte, CAN, CHAN_0, CAN_RANGE, AREF_GROUND, &data);
+
+		// empiler les donnees dans la fifo
 		rtf_put(fifo1, &n, sizeof(n));
 		rtf_put(fifo1, &a, sizeof(a));
 		rtf_put(fifo1, &S, sizeof(S));
 		rtf_put(fifo1, &f, sizeof(f));		
 		rtf_put(fifo1, &p, sizeof(p));
 		rtf_put(fifo1, &data, sizeof(data));	// valeur du CAN 
+		
+		// lacher la semaphore V
 		rt_sem_signal(&S1);
 
+		// arret de la tache
 		rt_task_suspend (&Tache2_Ptr);
 		
 		
@@ -87,14 +93,17 @@ void Tache1 (long int x)
   
 	lsampl_t TabCNA[N], S, f, p, a, data;
 
-
+	// conversion des valeurs de sinus pour lenvoi avec le CNA
 	for (i = 0 ; i < N; i++){
 		TabCNA[i] = 0.5 * coeff * Tab[i] + coeff;
 	}
   
 	while (1)
 	{
+		// attente de la semaphore P
 		rt_sem_wait(&S1);
+
+		// depiler les donnees de la fifo
 		rtf_get(fifo1, &n);
 		rtf_get(fifo1, &a);
 		rtf_get(fifo1, &S);
@@ -102,33 +111,42 @@ void Tache1 (long int x)
 		rtf_get(fifo1, &p);
 		rtf_get(fifo1, &data);
 		
-		if (a) {
+		if (a) { // demande de modification de l'amplitude "a = 1"
+			
+			// conversion CAN a une donnees amplitude [0 5V]
+			Voltage = ( (5)/(65535) ) * data  
 
-			Voltage = ( (5)/(65535) ) * data  // conversion ADC pour un registre ADC de 16 bits [0 5V]
-
+			// mise a jour des donnes
 			for (i = 0 ; i < N; i++){
 				TabCNA[i] = Voltage * 0.5 * coeff * Tab[i] + coeff;
 			}
 		}
 
-		else if (f) {   // rt_busy_sleep delai sans liberation du processeur
+		else if (f) {  // demande de modification de la frequence "f = 1"
 				
-			if (S){ 
-				freq = ( (99)/(65535) ) * data + 1 ; // Vmin Vmax  -> 1 100 
+			if (S){ // range de la frequence de [10 - 100] (hz) "s = 1"
+
+				// conversion du CAN a une donnee frequence  [10 - 100] (hz)
+				freq = ( (99)/(65535) ) * data + 1 ;
+				
 				x = (1) / (2e-6 * 50 * freq);
 				rt_busy_sleep( (2*x-2) * microsec);
 			}
-			else{ // 100 - 10 khZ
+			else{ // range de la frequence de [100 - 1e4] (hz) "s = 0"
 
-				freq = ( (9900)/(65535) ) * data + 100 ; // Vmin Vmax  -> 100 10k
+				// conversion du CAN a une donnee frequence [100 - 1e4] (hz)
+				freq = ( (9900)/(65535) ) * data + 100 ; 
+				
 				x = (1) / (2e-6 * 50 * freq);
 				rt_busy_sleep( (2*x-2) * microsec);
 			}
 		}
-		else if (p){
+		else if (p){ // demande de modification de la phase "p = 1"
 
-			Phase = ( (PI) / (65535) ) * data - (PI)/ (2) ;
+			// conversion du CAN a une donnee phase [-pi/2 pi/2]
+			Phase = ( (PI) / (65535) ) * data - (PI)/ (2) ; 
 
+			// mise a jour des donnes
 			for (i = 0 ; i < N; i++){
 				TabCNA[i] =  coeff * ( Tab[i] + Phase ) + coeff;
 			}
@@ -137,28 +155,39 @@ void Tache1 (long int x)
 
 		if (n) { // signal 1
 
+			// envoie des donnes sinus dans le canal 1 (signal 1)
 			comedi_data_write(carte, CNA, CHAN_1, 0, AREF_GROUND, TabCNA[j]); // write CNA i
 
+			// mise a jour du pointeur d'echantillon
 			j = (j+1) % N;
 			
+			// si t = T reveil de la tache modification
 			if ( ( j % 50 ) == 0 )
 			{
 				rt_task_resume(&Tache2_Ptr);
 			}
 
+			
+			// attente jusqu'a la prochaine periode
 			rt_task_wait_period();
 		}
-		else
-		{
+		else  
+		{   // signal 0
+
+			
+			// envoie des donnes sinus dans le canal 0 (signal 0)
 			comedi_data_write(carte, CNA, CHAN_0, 0, AREF_GROUND, TabCNA[j]); // write CNA i
 				
+			// mise a jour du pointeur d'echantillon
 			j = (j+1) % N;	
 				
+			// si t = T reveil de la tache modification
 			if ( ( j % 50 ) == 0 )
 			{
 				rt_task_resume(&Tache2_Ptr);
 			}
 
+			// attente jusqu'a la prochaine periode
 			rt_task_wait_period();
 		}
 			
@@ -174,7 +203,11 @@ int init_module(void)
  	 // Création des tâches
     rt_task_init(&Tache1_Ptr, Tache1, 1, 2000, 2, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
  	rt_task_init(&Tache2_Ptr, Tache2, 1, 2000, 1, 0 ,0); // S.S = 2000, PRIO, FPU, PRETASK 
- 	rtf_create(1,2000);
+ 	
+	// creation de la fifo
+	rtf_create(fifo1,2000);
+
+	// creation de la semaphore
 	rt_sem_init(&S1,1);
 
 
@@ -218,6 +251,6 @@ void cleanup_module(void)
   // Destruction des objets de l'application
   rt_task_delete(&Tache1_Ptr);
   rt_task_delete(&Tache2_Ptr);
-  rtf_destroy(1);
+  rtf_destroy(fifo1);
   rt_sem_delete(&S1);
 }
